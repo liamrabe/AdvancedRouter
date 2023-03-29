@@ -1,0 +1,19 @@
+{
+	"name": "liamrabe/advanced-router",
+	"description": "A more advanced version of my previous Router-library",
+	"type": "project",
+	"license": "MIT",
+	"autoload": {
+		"psr-4": {
+			"LiamRabe\\AdvancedRouter\\": "src/"
+		}
+	},
+	"authors": [
+		{
+			"name": "Liam Rabe",
+			"email": "liamrabe@hotmail.com"
+		}
+	],
+	"minimum-stability": "stable",
+	"require": {}
+}
