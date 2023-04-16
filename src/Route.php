@@ -120,9 +120,13 @@ class Route implements IRoute {
 	/**
 	 * @throws ReflectionException|InvalidArgumentException
 	 */
-	public function buildCallback(array|Closure $callback): array {
+	public function buildCallback(array|Closure $callback): array|string|Closure {
 		if ($callback instanceof Closure) {
 			$reflection_function = new ReflectionFunction($callback);
+
+			if (!$reflection_function->getClosureScopeClass()) {
+				return $callback;
+			}
 
 			$closure_class = $reflection_function->getClosureScopeClass()->getName();
 			$closure_method_name = $reflection_function->getName();
@@ -143,7 +147,7 @@ class Route implements IRoute {
 	/**
 	 * @throws ReflectionException|InvalidArgumentException
 	 */
-	public function buildControllerCallback(): array {
+	public function buildControllerCallback(): array|Closure {
 		return $this->buildCallback($this->callback);
 	}
 
@@ -153,4 +157,12 @@ class Route implements IRoute {
 	public function buildMiddlewareCallback(): array {
 		return $this->buildCallback($this->middleware);
 	}
+
+	/**
+	 * @return array
+	 */
+	public function getMiddlewares(): array {
+		return $this->middleware;
+	}
+
 }

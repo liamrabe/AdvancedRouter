@@ -2,6 +2,7 @@
 namespace LiamRabe\AdvancedRouter;
 
 use Closure;
+use LiamRabe\AdvancedRouter\Collection\ClassStorageHandler;
 use LiamRabe\AdvancedRouter\Exception\InvalidArgumentException;
 use LiamRabe\AdvancedRouter\Exception\RouterException;
 use LiamRabe\AdvancedRouter\Interface\IRoute;
@@ -29,15 +30,11 @@ class Router {
 
 	protected const VERSION = '1.0.0';
 
-	/* Error handling */
-
 	protected string $error_controller_class;
 	protected string $error_controller_method;
 
-	/* Middleware */
-
-	protected string $middleware_class;
-	protected string $middleware_method;
+	protected ClassStorageHandler $middleware_class_storage;
+	protected ClassStorageHandler $error_handler_class_storage;
 
 	/* Route */
 
@@ -50,43 +47,26 @@ class Router {
 	protected array $headers = [];
 	protected string $uri = '';
 
-	/**
-	 * @throws InvalidArgumentException
-	 */
-	protected function validateHandlers(string $class_name, string $method_name): void {
-		if (!class_exists($class_name)) {
-			throw new InvalidArgumentException(sprintf(
-				"Provided class '%s' doesn't exist",
-				$class_name,
-			));
-		}
-
-		if (!method_exists($class_name, $method_name)) {
-			throw new InvalidArgumentException(sprintf(
-				"Method '%s' in class '%s' doesn't exist",
-				$method_name, $class_name,
-			));
-		}
+	public function __construct() {
+		$this->error_handler_class_storage = new ClassStorageHandler();
+		$this->middleware_class_storage = new ClassStorageHandler();
 	}
 
 	/**
 	 * @throws InvalidArgumentException
 	 */
 	public function setErrorController(string $class_name, string $method_name): void {
-		$this->validateHandlers($class_name, $method_name);
+		$this->middleware_class_storage->validateHandlers($class_name, $method_name);
 
 		$this->error_controller_method = $method_name;
 		$this->error_controller_class = $class_name;
 	}
 
 	/**
-	 * @throws InvalidArgumentException
+	 * @throws InvalidArgumentException|\Exception
 	 */
-	public function setMiddleware(string $class_name, string $method_name): void {
-		$this->validateHandlers($class_name, $method_name);
-
-		$this->middleware_method = $method_name;
-		$this->middleware_class = $class_name;
+	public function setMiddleware(string $class_name, string $method_name): string {
+		return $this->middleware_class_storage->add($class_name, $method_name);
 	}
 
 	public function setIncludeTrailingSlash(bool $include_trailing_slash): void {
@@ -97,10 +77,10 @@ class Router {
 	 * @throws InvalidArgumentException
 	 */
 	protected function validateRouteCreation(): void {
-		$middleware = $this->middleware_class ?? null;
-
-		if (!$middleware) {
-			throw new InvalidArgumentException('Middleware required before creating routes', 500);
+		foreach ($this->middleware_class_storage->all() as $middleware) {
+			if (!$middleware) {
+				throw new InvalidArgumentException('Middleware required before creating routes', 500);
+			}
 		}
 
 		$controller = $this->error_controller_class ?? null;
@@ -171,10 +151,7 @@ class Router {
 
 		$uri = $this->uri . $uri;
 
-		return $this->routes[] = new $this->route_class($method, $uri, $handler, [
-			$this->middleware_class,
-			$this->middleware_method,
-		]);
+		return $this->routes[] = new $this->route_class($method, $uri, $handler, $this->middleware_class_storage->all());
 	}
 
 	/**
@@ -222,19 +199,25 @@ class Router {
 	/**
 	 * @throws InvalidArgumentException
 	 */
-	public function group(string $uri, Closure $callable, array $middleware): void {
-		$temp_middleware = [
-			$this->middleware_class,
-			$this->middleware_method,
-		];
+	public function group(string $uri, Closure $callable, ?array $middleware = null): void {
+		$middleware_keys = [];
 
-		$this->setMiddleware($middleware[0] ?? '', $middleware[1] ?? '');
+		if ($middleware) {
+			foreach ($middleware as $mw) {
+				$key = $this->setMiddleware($mw[0] ?? '', $mw[1] ?? '');
+				$middleware_keys[$key] = true;
+			}
+		}
 
 		$this->uri = sprintf('%s%s', $this->uri, $uri);
 		$callable($this);
 		$this->uri = rtrim($this->uri, $uri);
 
-		$this->setMiddleware($temp_middleware[0], $temp_middleware[1]);
+		if ($middleware) {
+			foreach ($middleware_keys as $key => $ignored) {
+				$this->middleware_class_storage->remove($key);
+			}
+		}
 	}
 
 	protected function method(): string {
@@ -277,12 +260,14 @@ class Router {
 
 			[$request, $response] = $this->getControllerParameters($route);
 
-			/**
-			 * Will throw an exception
-			 */
-			call_user_func_array($route->buildMiddlewareCallback(), [
-				$request
-			]);
+			foreach ($route->getMiddlewares() as $middleware) {
+				/**
+				 * Will throw an exception
+				 */
+				call_user_func_array($route->buildCallback($middleware), [
+					$request
+				]);
+			}
 
 			$response = call_user_func_array($route->buildControllerCallback(), [$request, $response]);
 			$this->handleOutput($route, $request, $response);
